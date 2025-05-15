@@ -94,8 +94,8 @@ if upload:
     if df is not None:
         st.success("Data uploaded successfully.")
 else:
-    st.info("No file uploaded. Using example dataset: `penguins`.")
-    df = sns.load_dataset("penguins")
+    st.warning("Please upload a CSV or Excel file to begin.")
+    st.stop()
 
 # --- Feature selection ---
 if df is not None:
