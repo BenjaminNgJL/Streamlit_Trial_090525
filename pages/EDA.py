@@ -2,24 +2,22 @@ import streamlit as st
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import io
 
 st.set_page_config(page_title="Exploratory Data Analysis", layout="wide")
 st.title("📊 Exploratory Data Analysis")
 
-# --- Load CSV or Excel file ---
-def load_data(uploaded_file):
-    file_type = uploaded_file.name.split(".")[-1].lower()
-    try:
-        if file_type == "csv":
-            return pd.read_csv(uploaded_file)
-        elif file_type in ["xlsx", "xls"]:
-            return pd.read_excel(uploaded_file)
-    except Exception as e:
-        st.error(f"Error loading file: {e}")
-        return None
+# --- Load CSV/Excel files ---
+def load_dataframe(file):
+    file_type = file.name.split(".")[-1].lower()
+    if file_type == "csv":
+        return {file.name: pd.read_csv(file)}
+    elif file_type in ["xlsx", "xls"]:
+        xl = pd.ExcelFile(file)
+        return {f"{file.name} - {sheet}": xl.parse(sheet) for sheet in xl.sheet_names}
+    return {}
 
-
-# --- Show raw data, types, nulls ---
+# --- EDA functions ---
 def show_data_overview(df):
     st.subheader("📄 Raw Data Preview")
     st.dataframe(df.head())
@@ -27,22 +25,16 @@ def show_data_overview(df):
     st.subheader("🧮 Data Info")
     st.write("**Data Types:**")
     st.write(df.dtypes)
-
     st.write("**Missing Values:**")
     st.write(df.isnull().sum())
 
-
-# --- Summary statistics ---
 def show_summary_stats(df):
     st.subheader("📈 Summary Statistics")
     st.write(df.describe(include="all"))
 
-
-# --- Univariate chart (histogram or bar) ---
 def plot_univariate(df):
     st.subheader("🔍 Univariate Distribution")
     col = st.selectbox("Select a column", df.columns, key="univariate")
-
     if df[col].dtype in ["float", "int"]:
         fig, ax = plt.subplots()
         sns.histplot(df[col].dropna(), kde=True, ax=ax)
@@ -52,28 +44,20 @@ def plot_univariate(df):
         fig, ax = plt.subplots()
         df[col].value_counts().plot(kind="bar", ax=ax)
         ax.set_title(f"Frequency of {col}")
-        ax.set_ylabel("Count")
         st.pyplot(fig)
 
-
-# --- Multivariate line plot ---
 def plot_multiline(df):
     st.subheader("📉 Line Plot")
-    time_col = st.selectbox("Select X-axis (usually time or index)", df.columns, key="line_x")
-    line_cols = st.multiselect("Select numeric columns for Y-axis", df.select_dtypes(include=["float", "int"]).columns, key="line_y")
-
-    if time_col and line_cols:
+    x_col = st.selectbox("X-axis (e.g. time/index)", df.columns, key="line_x")
+    y_cols = st.multiselect("Y-axis numeric columns", df.select_dtypes(include=["float", "int"]).columns, key="line_y")
+    if x_col and y_cols:
         fig, ax = plt.subplots()
-        for col in line_cols:
-            ax.plot(df[time_col], df[col], label=col)
-        ax.set_title(f"{' vs '.join(line_cols)} over {time_col}")
-        ax.set_xlabel(time_col)
-        ax.set_ylabel("Values")
-        ax.legend(title="Features")
+        for col in y_cols:
+            ax.plot(df[x_col], df[col], label=col)
+        ax.set_title(f"{' & '.join(y_cols)} over {x_col}")
+        ax.legend()
         st.pyplot(fig)
 
-
-# --- Correlation heatmap ---
 def plot_correlation_heatmap(df):
     num_df = df.select_dtypes(include=["float", "int"])
     if num_df.shape[1] < 2:
@@ -83,34 +67,109 @@ def plot_correlation_heatmap(df):
     sns.heatmap(num_df.corr(), annot=True, cmap="coolwarm", ax=ax)
     st.pyplot(fig)
 
+def filter_dataframe(df):
+    st.subheader("🔍 Optional Row Filter")
+    cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+    for col in cols:
+        options = df[col].dropna().unique().tolist()
+        selection = st.multiselect(f"Filter `{col}`", options, default=options)
+        df = df[df[col].isin(selection)]
+    return df
 
-# --- Sidebar: file upload ---
-st.sidebar.header("Data Options")
-upload = st.sidebar.file_uploader("Upload CSV or Excel file", type=["csv", "xlsx", "xls"])
+def download_button(df, filename, label):
+    csv = df.to_csv(index=False)
+    b64 = csv.encode("utf-8")
+    st.download_button(label=label, data=b64, file_name=filename, mime="text/csv")
 
-# --- Load dataset ---
-if upload:
-    df = load_data(upload)
-    if df is not None:
-        st.success("Data uploaded successfully.")
+# ======================
+# SIDEBAR: FILE UPLOAD
+# ======================
+st.sidebar.header("Upload Data")
+uploads = st.sidebar.file_uploader(
+    "Upload CSV or Excel files", type=["csv", "xlsx", "xls"], accept_multiple_files=True
+)
+
+dataframes = {}
+if uploads:
+    for file in uploads:
+        dataframes.update(load_dataframe(file))
 else:
-    st.warning("Please upload a CSV or Excel file to begin.")
+    st.warning("Please upload one or more CSV or Excel files.")
     st.stop()
 
-# --- Feature selection ---
-if df is not None:
-    all_columns = df.columns.tolist()
-    selected_columns = st.multiselect("Select columns to analyze", all_columns, default=all_columns)
+# ======================
+# JOINING SECTION
+# ======================
+st.subheader("🔗 Optional: Join Two Datasets")
 
-    if not selected_columns:
-        st.warning("Please select at least one column.")
-        st.stop()
-    df = df[selected_columns]
+st.markdown("""
+**Join Types (in simple terms):**
+- **Inner Join**: Only rows with matching keys in both datasets are kept  
+- **Left Join**: All rows from the left dataset, plus matches from the right  
+- **Right Join**: All rows from the right dataset, plus matches from the left  
+- **Outer Join**: All rows from both datasets, matching where possible
+""")
 
-    # --- Analysis sections ---
-    show_data_overview(df)
-    show_summary_stats(df)
-    plot_univariate(df)
-    plot_multiline(df)
-    plot_correlation_heatmap(df)
+df_keys = list(dataframes.keys())
+left_name = st.selectbox("Select Left Dataset", df_keys, key="left_ds")
+right_name = st.selectbox("Select Right Dataset", df_keys, key="right_ds")
 
+if left_name != right_name:
+    left_df = dataframes[left_name]
+    right_df = dataframes[right_name]
+    common_cols = list(set(left_df.columns) & set(right_df.columns))
+
+    if common_cols:
+        join_cols = st.multiselect("Select column(s) to join on", common_cols, key="join_cols")
+        join_type = st.selectbox("Join Type", ["inner", "left", "right", "outer"], key="join_type")
+
+        if join_cols and st.button("Join Datasets"):
+            try:
+                joined_df = pd.merge(left_df, right_df, on=join_cols, how=join_type)
+                join_label = f"[Joined] {left_name} x {right_name}"
+                dataframes[join_label] = joined_df
+                st.success(f"{join_type.title()} join complete. Dataset '{join_label}' added.")
+                st.dataframe(joined_df.head())
+                # Save to CSV
+                st.write("💾 Download Joined Dataset")
+                download_button(joined_df, f"{join_label}.csv", "📥 Download as CSV")
+            except Exception as e:
+                st.error(f"Join failed: {e}")
+    else:
+        st.info("No common columns found to join on.")
+else:
+    st.info("Please select two different datasets.")
+
+# ======================
+# SELECT DATASET FOR EDA
+# ======================
+st.subheader("📂 Choose Dataset for EDA")
+selected_df_name = st.selectbox("Available datasets (raw or joined)", list(dataframes.keys()), key="eda_ds")
+df = dataframes[selected_df_name]
+
+# ======================
+# COLUMN AND ROW FILTER
+# ======================
+st.subheader("🔧 Column & Row Selection")
+all_columns = df.columns.tolist()
+selected_columns = st.multiselect("Select columns for analysis", all_columns, default=all_columns, key="eda_cols")
+
+if not selected_columns:
+    st.warning("Please select at least one column.")
+    st.stop()
+
+df = df[selected_columns]
+df = filter_dataframe(df)
+
+# --- Save Selected Subset ---
+st.markdown("💾 Download Selected Dataset")
+download_button(df, f"{selected_df_name}_selected.csv", "📥 Download Filtered CSV")
+
+# ======================
+# EDA ON SELECTED DF
+# ======================
+show_data_overview(df)
+show_summary_stats(df)
+plot_univariate(df)
+plot_multiline(df)
+plot_correlation_heatmap(df)
