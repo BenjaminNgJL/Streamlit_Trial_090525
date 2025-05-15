@@ -61,10 +61,14 @@ def plot_multiline(df):
 def plot_correlation_heatmap(df):
     num_df = df.select_dtypes(include=["float", "int"])
     if num_df.shape[1] < 2:
+        st.info("Not enough numeric features for correlation heatmap.")
         return
     st.subheader("🔗 Correlation Heatmap")
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.heatmap(num_df.corr(), annot=True, cmap="coolwarm", ax=ax)
+    fig, ax = plt.subplots(figsize=(1.5 * len(num_df.columns), 8))
+    sns.heatmap(num_df.corr(), annot=True, cmap="coolwarm", ax=ax, fmt=".2f")
+    plt.xticks(rotation=45, ha="right")
+    plt.yticks(rotation=0)
+    plt.tight_layout()
     st.pyplot(fig)
 
 def filter_dataframe(df):
