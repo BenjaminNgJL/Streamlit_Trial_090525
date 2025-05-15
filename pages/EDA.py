@@ -48,14 +48,24 @@ def plot_univariate(df):
 
 def plot_multiline(df):
     st.subheader("📉 Line Plot")
+
     x_col = st.selectbox("X-axis (e.g. time/index)", df.columns, key="line_x")
     y_cols = st.multiselect("Y-axis numeric columns", df.select_dtypes(include=["float", "int"]).columns, key="line_y")
+
     if x_col and y_cols:
-        fig, ax = plt.subplots()
+        # Try to convert x-axis to datetime (optional improvement)
+        x_data = pd.to_datetime(df[x_col], errors="ignore")  # won't raise error if not datetime
+
+        fig, ax = plt.subplots(figsize=(10, 6))
         for col in y_cols:
-            ax.plot(df[x_col], df[col], label=col)
+            ax.plot(x_data, df[col], label=col, marker='o')
+
         ax.set_title(f"{' & '.join(y_cols)} over {x_col}")
+        ax.set_xlabel(x_col)
+        ax.set_ylabel("Values")
         ax.legend()
+        plt.xticks(rotation=45, ha="right")  # Rotate x-axis labels
+        plt.tight_layout()  # Prevent overlap of labels
         st.pyplot(fig)
 
 def plot_correlation_heatmap(df):
